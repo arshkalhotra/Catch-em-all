@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Node Details</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+            background-image: url('https://www.transparenttextures.com/patterns/asfalt-light.png');
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px; /* Add margin below the table */
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+        }
+        td {
+            background-color: #f2f2f2;
+        }
+        svg {
+            width: 100%;
+            height: 400px;
+        }
+        .btn-download {
+            display: inline-block;
+            padding: 10px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            color: #fff;
+            background-color: #007bff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-align: center;
+            text-decoration: none;
+            margin-top: 10px; /* Increase margin-top for spacing */
+        }
+        .btn-download:hover {
+            background-color: #0056b3;
+        }
+        .total-amount {
+            font-weight: bold;
+            margin-top: 20px;
+            margin-bottom: 10px; /* Add margin-bottom for spacing */
+        }
+    </style>
+</head>
+<body>
+    <h2>Node Details</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Crime ID</th>
+                <th>Account ID</th>
+                <th>Bank Name</th>
+                <th>Amount</th>
+                <th>Layers</th>
+            </tr>
+        </thead>
+        <tbody id="details-table-body">
+            <!-- Details will be dynamically inserted here -->
+        </tbody>
+    </table>
+    <div class="total-amount" id="total-amount">Total Amount: </div>
+    <button class="btn-download" onclick="downloadExcel()">Download Excel File</button>
+
+    <h2>Subgraph Visualization</h2>
+    <svg id="subgraph"></svg>
+
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.16.9/xlsx.full.min.js"></script>
+    <script>
+        function downloadExcel() {
+            const table = document.getElementById('details-table-body');
+            const wb = XLSX.utils.book_new();
+            const ws_data = [['Crime ID', 'Account ID', 'Bank Name', 'Amount', 'Layers']];
+
+            table.querySelectorAll('tr').forEach(row => {
+                const rowData = [];
+                row.querySelectorAll('td').forEach(cell => {
+                    rowData.push(cell.textContent);
+                });
+                ws_data.push(rowData);
+            });
+
+            const ws = XLSX.utils.aoa_to_sheet(ws_data);
+            XLSX.utils.book_append_sheet(wb, ws, "Node Details");
+
+            XLSX.writeFile(wb, 'node_details.xlsx');
+        }
+
+        function renderSubgraph(nodeId, relatedNodes) {
+            document.querySelector('h2').textContent = `Details for Node: ${nodeId}`;
+            const tableBody = document.getElementById('details-table-body');
+
+            // Calculate total amount and count of associated crime IDs
+            let totalAmount = 0;
+            const crimeIdCounts = {};
+
+            relatedNodes.forEach(node => {
+                totalAmount += parseFloat(node.amount);
+
+                if (!crimeIdCounts[node.accountid]) {
+                    crimeIdCounts[node.accountid] = 0;
+                }
+                crimeIdCounts[node.accountid] += 1;
+
+                const row = document.createElement('tr');
+                const cellCrimeId = document.createElement('td');
+                const cellAccountId = document.createElement('td');
+                const cellBankName = document.createElement('td');
+                const cellAmount = document.createElement('td');
+                const cellCrimeIdCount = document.createElement('td');
+
+                cellCrimeId.textContent = node.crimeid;
+                cellAccountId.textContent = node.accountid;
+                cellBankName.textContent = node.bankname;
+                cellAmount.textContent = node.amount;
+                cellCrimeIdCount.textContent = crimeIdCounts[node.accountid];
+
+                row.appendChild(cellCrimeId);
+                row.appendChild(cellAccountId);
+                row.appendChild(cellBankName);
+                row.appendChild(cellAmount);
+                row.appendChild(cellCrimeIdCount);
+                tableBody.appendChild(row);
+            });
+
+            // Update total amount in the DOM
+            document.getElementById('total-amount').textContent = `Total Amount: ${totalAmount}`;
+
+            // Prepare data for subgraph visualization
+            const nodes = [];
+            const links = [];
+
+            relatedNodes.forEach(node => {
+                if (!nodes.some(n => n.id === node.accountid)) {
+                    nodes.push({ id: node.accountid, group: 'accountid', bankname: node.bankname });
+                }
+                if (!nodes.some(n => n.id === node.crimeid)) {
+                    nodes.push({ id: node.crimeid, group: 'crimeid' });
+                }
+                links.push({ source: node.accountid, target: node.crimeid, amount: node.amount });
+            });
+
+            const width = document.getElementById('subgraph').clientWidth;
+            const height = document.getElementById('subgraph').clientHeight;
+
+            const svg = d3.select("#subgraph");
+            svg.selectAll("*").remove();  // Clear previous content
+
+            const color = d3.scaleOrdinal(d3.schemeCategory10);
+
+            const simulation = d3.forceSimulation(nodes)
+                .force("link", d3.forceLink(links).id(d => d.id).distance(100).strength(0.1))
+                .force("charge", d3.forceManyBody().strength(-50))
+                .force("center", d3.forceCenter(width / 2, height / 2));
+
+            const link = svg.append("g")
+                .attr("class", "links")
+                .selectAll("line")
+                .data(links)
+                .enter().append("line")
+                .attr("stroke-width", 2)
+                .attr("stroke", "#999");
+
+            const node = svg.append("g")
+                .attr("class", "nodes")
+                .selectAll("circle")
+                .data(nodes)
+                .enter().append("circle")
+                .attr("r", 5)
+                .attr("fill", d => color(d.group))
+                .call(d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended));
+
+            const text = svg.append("g")
+                .attr("class", "texts")
+                .selectAll("text")
+                .data(nodes)
+                .enter().append("text")
+                .attr("dx", 8)
+                .attr("dy", ".35em")
+                .text(d => d.id);
+
+            node.append("title")
+                .text(d => d.id);
+
+            simulation
+                .nodes(nodes)
+                .on("tick", ticked);
+
+            simulation.force("link")
+                .links(links);
+
+            function ticked() {
+                link
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+
+                node
+                    .attr("cx", d => d.x)
+                    .attr("cy", d => d.y);
+
+                text
+                    .attr("x", d => d.x)
+                    .attr("y", d => d.y);
+            }
+
+            function dragstarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+
+            function dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+
+            function dragended(event, d) {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+        }
+    </script>
+</body>
+</html>
